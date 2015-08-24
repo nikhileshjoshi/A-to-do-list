@@ -41,6 +41,9 @@ func init() {
 
 	// List management
 	r.Handle("/list", appHandler(getAllLists)).Methods("GET")
+	r.Handle("/list", appHandler(createLists)).Methods("POST")
+	r.Handle("/list/{list}", appHandler(getList)).Methods("GET")
+	r.Handle("/list/{list}", appHandler(deleteList)).Methods("DELETE")
 
 	http.Handle("/api/", r)
 }
@@ -75,4 +78,62 @@ func getAllLists(w io.Writer, r *http.Request) error {
 	// - json.Encoder: http://golang.org/pkg/encoding/json#Encoder
 	enc := json.NewEncoder(w)
 	return enc.Encode(lists)
+}
+
+func createLists(w io.Writer, r *http.Request) error {
+	c := appengine.NewContext(r)
+	list := List{}
+
+	dec := json.NewDecoder(r.Body)
+	err := dec.Decode(&list)
+
+	if err != nil {
+		return appErrorf(http.StatusInternalServerError, "Error in decoding:%v", err)
+	}
+	if list.Name == "" {
+		return appErrorf(http.StatusBadRequest, "Missing list name")
+	}
+
+	key := datastore.NewIncompleteKey(c, listKind, nil)
+
+	key, err = datastore.Put(c, key, &list)
+
+	if err != nil {
+		return appErrorf(http.StatusBadRequest, "Error in Datastore put: %v", err)
+	}
+
+	list.ID = key.Encode()
+
+	return json.NewEncoder(w).Encode(list)
+}
+
+func getList(w io.Writer, r *http.Request) error {
+	c := appengine.NewContext(r)
+	list := List{}
+
+	vars := mux.Vars(r)
+	encodedListID := vars["list"]
+
+	key, _ := datastore.DecodeKey(encodedListID)
+
+	err := datastore.Get(c, key, &list)
+
+	if err == datastore.ErrNoSuchEntity || err != nil {
+		return appErrorf(http.StatusBadRequest, "Error in datastore get:%v", err)
+	}
+
+	list.ID = key.Encode()
+	return json.NewEncoder(w).Encode(list)
+}
+
+func deleteList(w io.Writer, r *http.Request) error {
+	c := appengine.NewContext(r)
+
+	vars := mux.Vars(r)
+	encodedListID := vars["list"]
+
+	key, _ := datastore.DecodeKey(encodedListID)
+
+	return datastore.Delete(c, key)
+
 }
